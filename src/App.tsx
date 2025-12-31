@@ -1,3 +1,7 @@
+import React from 'react';
+//import { Badge } from '@fluentui/react-badge';
+//import { Badge } from '@fluentui/react-components';
+
 import {
   Badge,
   Body1,
@@ -226,7 +230,8 @@ function App() {
                 const milestoneDone = milestone.tasks.every((task) => completedTasks[task.id]);
                 return (
                   <TreeItem itemType="branch" value={milestone.id} key={milestone.id}>
-                    <TreeItemLayout expandIconPosition="start">
+                    <TreeItemLayout>
+                      {/* <TreeItemLayout expandIconPosition="start"> */}
                       <Text weight="semibold">{milestone.title}</Text>
                       {milestoneDone && (
                         <Badge appearance="ghost" size="extra-small">
