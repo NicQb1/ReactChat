@@ -1,15 +1,17 @@
 # Deployment Assistant
 
-A React + Vite sample that uses Microsoft Fluent UI components. The main page shows a deployment checklist in a TreeView
-and a chat surface for interacting with a Microsoft Foundation Workflow assistant.
+A Blazor WebAssembly sample that uses Microsoft Fluent UI Blazor components. The main page shows a deployment checklist and a chat surface for interacting with a Microsoft Foundation Workflow assistant.
 
 ## Getting started
 
 ```bash
-npm install
-npm run dev
+dotnet run
 ```
 
 Then open the printed localhost URL.
 
-> Note: If package installs are blocked in your environment, mirror dependencies or vendor them locally before running the app.
+## Workflow connection
+
+Edit `wwwroot/appsettings.json` (or create `wwwroot/appsettings.Development.json`) with the Azure AI Project endpoint, agent details, and an API key. This client uses the API key directly, so avoid committing real keys to source control.
+
+> Note: This project targets .NET 10. Make sure the .NET 10 SDK is installed before building or running.
