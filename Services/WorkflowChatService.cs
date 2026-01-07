@@ -1,7 +1,8 @@
 using Azure.AI.Projects;
 using Azure.AI.Projects.OpenAI;
-using Azure.Identity;
 using OpenAI.Responses;
+using System.ClientModel;
+using System.ClientModel.Primitives;
 
 namespace ReactChat.Services;
 
@@ -12,12 +13,14 @@ public sealed class WorkflowChatService
     private readonly AIProjectClient _projectClient;
     private readonly AgentReference _agentReference;
     private ProjectResponsesClient? _responseClient;
+    private const string ApiKeyTokenType = "Bearer";
 
     public WorkflowChatService(IConfiguration configuration)
     {
         var projectEndpoint = configuration["Workflow:ProjectEndpoint"];
         var agentName = configuration["Workflow:AgentName"];
         var agentVersion = configuration["Workflow:AgentVersion"];
+        var apiKey = configuration["Workflow:ApiKey"];
 
         if (string.IsNullOrWhiteSpace(projectEndpoint))
         {
@@ -34,7 +37,12 @@ public sealed class WorkflowChatService
             throw new InvalidOperationException("Workflow:AgentVersion is not configured.");
         }
 
-        _projectClient = new AIProjectClient(endpoint: new Uri(projectEndpoint), tokenProvider: new DefaultAzureCredential());
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            throw new InvalidOperationException("Workflow:ApiKey is not configured.");
+        }
+
+        _projectClient = new AIProjectClient(endpoint: new Uri(projectEndpoint), tokenProvider: new ApiKeyTokenProvider(apiKey));
         _agentReference = new AgentReference(name: agentName, version: agentVersion);
     }
 
@@ -62,5 +70,30 @@ public sealed class WorkflowChatService
         _responseClient = _projectClient.OpenAI.GetProjectResponsesClientForAgent(_agentReference, conversation);
 
         return _responseClient;
+    }
+
+    private sealed class ApiKeyTokenProvider : AuthenticationTokenProvider
+    {
+        private readonly string _apiKey;
+
+        public ApiKeyTokenProvider(string apiKey)
+        {
+            _apiKey = apiKey;
+        }
+
+        public override GetTokenOptions CreateTokenOptions(IReadOnlyDictionary<string, object> properties)
+        {
+            return new GetTokenOptions(properties);
+        }
+
+        public override AuthenticationToken GetToken(GetTokenOptions options, CancellationToken cancellationToken)
+        {
+            return new AuthenticationToken(_apiKey, ApiKeyTokenType, DateTimeOffset.MaxValue, refreshOn: null);
+        }
+
+        public override ValueTask<AuthenticationToken> GetTokenAsync(GetTokenOptions options, CancellationToken cancellationToken)
+        {
+            return ValueTask.FromResult(new AuthenticationToken(_apiKey, ApiKeyTokenType, DateTimeOffset.MaxValue, refreshOn: null));
+        }
     }
 }

@@ -12,6 +12,6 @@ Then open the printed localhost URL.
 
 ## Workflow connection
 
-Edit `wwwroot/appsettings.json` with the Azure AI Project endpoint and agent details. Authentication uses `DefaultAzureCredential`, so your local environment must be signed in (for example via `az login`) or running under a managed identity.
+Edit `wwwroot/appsettings.json` (or create `wwwroot/appsettings.Development.json`) with the Azure AI Project endpoint, agent details, and an API key. This client uses the API key directly, so avoid committing real keys to source control.
 
 > Note: This project targets .NET 10. Make sure the .NET 10 SDK is installed before building or running.
