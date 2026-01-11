@@ -1,6 +1,6 @@
 # Network adaptation guide
 
-This project was scaffolded outside of the secure Azure network as a proof of concept. Use this checklist to adapt the codebase and its dependencies when you move it into the correct network for Microsoft Foundry Workflow and Power Automate.
+This project was scaffolded outside of the secure Azure network as a proof of concept. Use this checklist to adapt the codebase and its dependencies when you move it into the correct network for Microsoft Foundry Agents.
 
 ## 1. Package and tooling configuration
 
@@ -16,14 +16,19 @@ Create `wwwroot/appsettings.Development.json` (not committed) to point the UI at
 
 ```
 {
-  "WorkflowApiBase": "https://<FOUNDATION_WORKFLOW_BASE_URL>",
-  "PowerAutomateWebhook": "https://<POWER_AUTOMATE_TRIGGER_URL>",
+  "Agents": {
+    "ProjectEndpoint": "https://<AI_PROJECT_ENDPOINT>",
+    "AgentName": "<DEFAULT_AGENT_NAME>",
+    "AgentVersion": "<DEFAULT_AGENT_VERSION>",
+    "ApiKey": "<PROJECT_API_KEY>"
+  },
   "AppBasePath": "/apps/reactchat"
 }
 ```
 
-- `WorkflowApiBase`: Base URL for the Foundation Workflow API (in-network host).
-- `PowerAutomateWebhook`: HTTP trigger URL for the target Power Automate flow (internal connector or gateway address).
+- `Agents:ProjectEndpoint`: Azure AI Foundry project endpoint for agents.
+- `Agents:AgentName` / `Agents:AgentVersion`: The default agent reference used for general chat.
+- `Agents:ApiKey`: Project API key for client-side access (use a key intended for browser use).
 - `AppBasePath`: Base path if the app is served behind a reverse proxy or app gateway; use `/` when deployed at the root.
 
 Reference these settings when you wire the UI to real services so that runtime calls resolve to the correct, environment-scoped URLs.
@@ -37,30 +42,24 @@ Reference these settings when you wire the UI to real services so that runtime c
 
 ## 4. Authentication and authorization
 
-- If the internal Foundation Workflow endpoint is secured by Entra ID (Azure AD), register a single-tenant app and supply the tenant-specific authority.
+- If the internal Azure AI Foundry endpoint requires Entra ID (Azure AD) instead of an API key, register a single-tenant app and supply the tenant-specific authority.
   - Add placeholders to `wwwroot/appsettings.Development.json` as needed (e.g., `AadTenantId`, `AadClientId`, `AadRedirectUri`).
   - Align redirect URIs with the internal hostname (portal or app gateway address).
 - Remove any multi-tenant auth settings used externally; use tenant-restricted scopes and resource URIs inside the secure network.
 
-## 5. Power Automate connectivity
-
-- If using HTTP triggers, ensure the internal firewall allows outbound calls from the hosting environment to the flow's endpoint.
-- Prefer an on-premises data gateway or managed connector over public HTTP URLs when available; update `PowerAutomateWebhook` accordingly.
-- Confirm the flow's CORS and authentication settings accept requests from the internal web host.
-
-## 6. Data residency and telemetry
+## 5. Data residency and telemetry
 
 - Point any logging or telemetry SDKs to in-network collectors. If you add Application Insights or Log Analytics, use region-appropriate connection strings and disable browser endpoints that resolve to public hosts.
 - Avoid writing PII to client-side storage; align with the destination environment's data handling requirements.
 
-## 7. Build, deployment, and validation
+## 6. Build, deployment, and validation
 
 - Build inside the secure network (`dotnet publish -c Release`) to ensure no external fetches occur during bundling.
 - Serve the static output from an approved host (e.g., App Service, Storage + Static Web Apps, or an internal static host) that resides on the correct virtual network.
 - Validate the bundled asset URLs respect `AppBasePath` and that runtime API calls resolve only to in-network endpoints.
-- Run a smoke test with corporate proxies enabled to confirm the UI can reach the Foundation Workflow and Power Automate URLs without public egress.
+- Run a smoke test with corporate proxies enabled to confirm the UI can reach the Azure AI Foundry endpoints without public egress.
 
-## 8. Hardening checklist before go-live
+## 7. Hardening checklist before go-live
 
 - Avoid shipping debug symbols in production builds if stack traces should not leak implementation details (use Release builds and trim PDBs as needed).
 - Enable Content Security Policy headers that restrict script/style origins to your internal hosts and CDNs.

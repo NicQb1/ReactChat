@@ -1,5 +1,5 @@
 @page "/"
-@inject WorkflowChatService WorkflowChatService
+@inject AgentsChatService AgentsChatService
 
 <PageTitle>Deployment Assistant</PageTitle>
 
@@ -43,7 +43,7 @@
         <main class="content">
             <FluentCard class="card">
                 <div class="card-header">
-                    <h2>Chat with Microsoft Foundation Workflow</h2>
+                    <h2>Chat with Microsoft Foundry Agents</h2>
                     <p>Capture deployment context, status, and generate guided actions.</p>
                 </div>
                 <FluentDivider />
@@ -53,7 +53,7 @@
                             @foreach (var message in Messages)
                             {
                                 <div class="message" @key="message.Id">
-                                    <span class="message-sender">@(message.Sender == MessageSender.User ? "You" : "Workflow")</span>
+                                    <span class="message-sender">@(message.Sender == MessageSender.User ? "You" : "Agent")</span>
                                     <div class="@(message.Sender == MessageSender.User ? "user-bubble" : "bot-bubble")">
                                         <p>@message.Text</p>
                                     </div>
@@ -115,7 +115,7 @@
     private readonly HashSet<string> _completedTaskIds = new();
     private readonly List<Message> _messages = new()
     {
-        new("welcome", MessageSender.Workflow, "Welcome! I am your Microsoft Foundation Workflow assistant. Tell me what you want to deploy and I will guide you through the steps."),
+        new("welcome", MessageSender.Agent, "Welcome! I am your Microsoft Foundry Agents assistant. Tell me what you want to deploy and I will guide you through the steps."),
     };
 
     private string _draft = string.Empty;
@@ -136,6 +136,11 @@
     private bool IsTaskComplete(string taskId) => _completedTaskIds.Contains(taskId);
 
     private bool? GetTaskState(string taskId) => IsTaskComplete(taskId);
+
+    private string? CurrentTaskId => Milestones
+        .SelectMany(milestone => milestone.Tasks)
+        .FirstOrDefault(task => !IsTaskComplete(task.Id))
+        ?.Id;
 
     private void SetTaskState(string taskId, bool? isChecked)
     {
@@ -164,17 +169,17 @@
 
         try
         {
-            var responseText = await WorkflowChatService.SendMessageAsync(trimmed);
+            var responseText = await AgentsChatService.SendMessageAsync(trimmed, CurrentTaskId);
             if (string.IsNullOrWhiteSpace(responseText))
             {
                 responseText = "The workflow did not return any text.";
             }
 
-            _messages.Add(new Message(Guid.NewGuid().ToString("N"), MessageSender.Workflow, responseText));
+            _messages.Add(new Message(Guid.NewGuid().ToString("N"), MessageSender.Agent, responseText));
         }
         catch (Exception ex)
         {
-            _messages.Add(new Message(Guid.NewGuid().ToString("N"), MessageSender.Workflow, $"Workflow error: {ex.Message}"));
+            _messages.Add(new Message(Guid.NewGuid().ToString("N"), MessageSender.Agent, $"Agent error: {ex.Message}"));
         }
         finally
         {
@@ -199,6 +204,6 @@
     private enum MessageSender
     {
         User,
-        Workflow,
+        Agent,
     }
 }

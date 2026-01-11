@@ -10,6 +10,6 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 
 builder.Services.AddFluentUIComponents();
 builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
-builder.Services.AddScoped<WorkflowChatService>();
+builder.Services.AddScoped<AgentsChatService>();
 
 await builder.Build().RunAsync();
