@@ -16,11 +16,17 @@ Create `wwwroot/appsettings.Development.json` (not committed) to point the UI at
 
 ```
 {
+  "AzureAd": {
+    "Authority": "https://login.microsoftonline.com/<TENANT_ID>",
+    "ClientId": "<CLIENT_ID>"
+  },
   "Agents": {
     "ProjectEndpoint": "https://<AI_PROJECT_ENDPOINT>",
     "AgentName": "<DEFAULT_AGENT_NAME>",
     "AgentVersion": "<DEFAULT_AGENT_VERSION>",
-    "ApiKey": "<PROJECT_API_KEY>"
+    "Scopes": [
+      "https://ai.azure.com/.default"
+    ]
   },
   "AppBasePath": "/apps/reactchat"
 }
@@ -28,7 +34,7 @@ Create `wwwroot/appsettings.Development.json` (not committed) to point the UI at
 
 - `Agents:ProjectEndpoint`: Azure AI Foundry project endpoint for agents.
 - `Agents:AgentName` / `Agents:AgentVersion`: The default agent reference used for general chat.
-- `Agents:ApiKey`: Project API key for client-side access (use a key intended for browser use).
+- `Agents:Scopes`: Entra ID scopes for the Azure AI Foundry project (use tenant-restricted scopes in secured networks).
 - `AppBasePath`: Base path if the app is served behind a reverse proxy or app gateway; use `/` when deployed at the root.
 
 Reference these settings when you wire the UI to real services so that runtime calls resolve to the correct, environment-scoped URLs.
@@ -42,9 +48,8 @@ Reference these settings when you wire the UI to real services so that runtime c
 
 ## 4. Authentication and authorization
 
-- If the internal Azure AI Foundry endpoint requires Entra ID (Azure AD) instead of an API key, register a single-tenant app and supply the tenant-specific authority.
-  - Add placeholders to `wwwroot/appsettings.Development.json` as needed (e.g., `AadTenantId`, `AadClientId`, `AadRedirectUri`).
-  - Align redirect URIs with the internal hostname (portal or app gateway address).
+- Register a single-tenant app for Entra ID and supply the tenant-specific authority and client ID in `wwwroot/appsettings.Development.json`.
+- Align redirect URIs with the internal hostname (portal or app gateway address).
 - Remove any multi-tenant auth settings used externally; use tenant-restricted scopes and resource URIs inside the secure network.
 
 ## 5. Data residency and telemetry

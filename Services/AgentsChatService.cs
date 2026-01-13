@@ -2,6 +2,8 @@ using Azure.AI.Agents.Persistent;
 using Azure.AI.Projects;
 using Azure.AI.Projects.OpenAI;
 using Azure.Core;
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
 using OpenAI.Responses;
 using System.ClientModel;
 using System.ClientModel.Primitives;
@@ -20,15 +22,16 @@ public sealed class AgentsChatService
     private readonly Dictionary<string, PersistentAgentState> _persistentAgentStates = new(StringComparer.OrdinalIgnoreCase);
     private readonly IReadOnlyDictionary<string, string> _taskAgentIds;
     private ProjectResponsesClient? _responseClient;
-    private const string DefaultTokenType = "Bearer";
 
-    public AgentsChatService(IConfiguration configuration)
+    public AgentsChatService(
+        IConfiguration configuration,
+        IAccessTokenProvider accessTokenProvider,
+        NavigationManager navigationManager)
     {
         var projectEndpoint = configuration["Agents:ProjectEndpoint"];
         var agentName = configuration["Agents:AgentName"];
         var agentVersion = configuration["Agents:AgentVersion"];
-        var apiKey = configuration["Agents:ApiKey"];
-        var apiKeyTokenType = configuration["Agents:ApiKeyTokenType"];
+        var scopes = configuration.GetSection("Agents:Scopes").Get<string[]>();
         var gatherInfoAgentId = configuration["Agents:TaskAgents:gather-info"];
         var createStepsAgentId = configuration["Agents:TaskAgents:create-steps"];
 
@@ -47,14 +50,14 @@ public sealed class AgentsChatService
             throw new InvalidOperationException("Agents:AgentVersion is not configured.");
         }
 
-        if (string.IsNullOrWhiteSpace(apiKey))
+        if (scopes is null || scopes.Length == 0)
         {
-            throw new InvalidOperationException("Agents:ApiKey is not configured.");
+            throw new InvalidOperationException("Agents:Scopes is not configured.");
         }
 
-        var tokenType = string.IsNullOrWhiteSpace(apiKeyTokenType) ? DefaultTokenType : apiKeyTokenType;
-        _projectClient = new AIProjectClient(endpoint: new Uri(projectEndpoint), tokenProvider: new ApiKeyTokenProvider(apiKey, tokenType));
-        _persistentAgentsClient = new PersistentAgentsClient(projectEndpoint, new ApiKeyTokenCredential(apiKey));
+        var tokenSource = new MsalTokenSource(accessTokenProvider, navigationManager, scopes);
+        _projectClient = new AIProjectClient(endpoint: new Uri(projectEndpoint), tokenProvider: new MsalAuthenticationTokenProvider(tokenSource));
+        _persistentAgentsClient = new PersistentAgentsClient(projectEndpoint, new MsalTokenCredential(tokenSource));
         _agentReference = new AgentReference(name: agentName, version: agentVersion);
         _taskAgentIds = BuildTaskAgentMap(gatherInfoAgentId, createStepsAgentId);
     }
@@ -219,15 +222,58 @@ public sealed class AgentsChatService
         return builder.ToString();
     }
 
-    private sealed class ApiKeyTokenProvider : AuthenticationTokenProvider
+    private sealed class MsalTokenSource
     {
-        private readonly string _apiKey;
-        private readonly string _tokenType;
+        private readonly IAccessTokenProvider _accessTokenProvider;
+        private readonly NavigationManager _navigationManager;
+        private readonly string[] _scopes;
 
-        public ApiKeyTokenProvider(string apiKey, string tokenType)
+        public MsalTokenSource(
+            IAccessTokenProvider accessTokenProvider,
+            NavigationManager navigationManager,
+            string[] scopes)
         {
-            _apiKey = apiKey;
-            _tokenType = tokenType;
+            _accessTokenProvider = accessTokenProvider;
+            _navigationManager = navigationManager;
+            _scopes = scopes;
+        }
+
+        public async ValueTask<(string Token, DateTimeOffset ExpiresOn)> GetTokenAsync()
+        {
+            var result = await _accessTokenProvider.RequestAccessToken(new AccessTokenRequestOptions
+            {
+                Scopes = _scopes,
+                ReturnUrl = _navigationManager.Uri,
+            });
+
+            if (result.TryGetToken(out var token))
+            {
+                return (token.Value, token.Expires);
+            }
+
+            if (result.Status == AccessTokenResultStatus.RequiresRedirect)
+            {
+                if (!string.IsNullOrWhiteSpace(result.InteractiveRequestUrl))
+                {
+                    _navigationManager.NavigateTo(result.InteractiveRequestUrl);
+                    throw new InvalidOperationException("Redirecting to sign-in.");
+                }
+
+                throw new InvalidOperationException("Sign-in is required. Navigate to /authentication/login.");
+            }
+
+            throw new InvalidOperationException($"Failed to acquire an access token. Status: {result.Status}.");
+        }
+    }
+
+    private sealed class MsalAuthenticationTokenProvider : AuthenticationTokenProvider
+    {
+        private const string TokenType = "Bearer";
+        private readonly MsalTokenSource _tokenSource;
+
+        public MsalAuthenticationTokenProvider(MsalTokenSource tokenSource)
+        {
+            _tokenSource = tokenSource;
         }
 
         public override GetTokenOptions CreateTokenOptions(IReadOnlyDictionary<string, object> properties)
@@ -240,36 +286,31 @@ public sealed class AgentsChatService
             return GetTokenAsync(options, cancellationToken).GetAwaiter().GetResult();
         }
 
-        public override ValueTask<AuthenticationToken> GetTokenAsync(GetTokenOptions options, CancellationToken cancellationToken)
+        public override async ValueTask<AuthenticationToken> GetTokenAsync(GetTokenOptions options, CancellationToken cancellationToken)
         {
-            return new ValueTask<AuthenticationToken>(CreateToken());
-        }
-
-        private AuthenticationToken CreateToken()
-        {
-            var expiresOn = DateTimeOffset.UtcNow.AddDays(1);
-            return new AuthenticationToken(_apiKey, _tokenType, expiresOn, refreshOn: null);
+            var (token, expiresOn) = await _tokenSource.GetTokenAsync();
+            return new AuthenticationToken(token, TokenType, expiresOn, refreshOn: null);
         }
     }
 
-    private sealed class ApiKeyTokenCredential : TokenCredential
+    private sealed class MsalTokenCredential : TokenCredential
     {
-        private readonly string _apiKey;
+        private readonly MsalTokenSource _tokenSource;
 
-        public ApiKeyTokenCredential(string apiKey)
+        public MsalTokenCredential(MsalTokenSource tokenSource)
         {
-            _apiKey = apiKey;
+            _tokenSource = tokenSource;
         }
 
-        public override AccessToken GetToken(TokenRequestContext requestContext, CancellationToken cancellationToken)
+        public override Azure.Core.AccessToken GetToken(TokenRequestContext requestContext, CancellationToken cancellationToken)
         {
             return GetTokenAsync(requestContext, cancellationToken).GetAwaiter().GetResult();
         }
 
-        public override ValueTask<AccessToken> GetTokenAsync(TokenRequestContext requestContext, CancellationToken cancellationToken)
+        public override async ValueTask<Azure.Core.AccessToken> GetTokenAsync(TokenRequestContext requestContext, CancellationToken cancellationToken)
         {
-            var expiresOn = DateTimeOffset.UtcNow.AddDays(1);
-            return new ValueTask<AccessToken>(new AccessToken(_apiKey, expiresOn));
+            var (token, expiresOn) = await _tokenSource.GetTokenAsync();
+            return new Azure.Core.AccessToken(token, expiresOn);
         }
     }
 

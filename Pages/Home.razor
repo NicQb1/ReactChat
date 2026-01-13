@@ -30,7 +30,7 @@
                             @foreach (var task in milestone.Tasks)
                             {
                                 <div class="tree-task">
-                                    <FluentCheckbox CheckState="@GetTaskState(task.Id)" CheckStateChanged="@(value => SetTaskState(task.Id, value))">
+                                    <FluentCheckbox ThreeState="true" CheckState="@GetTaskState(task.Id)" CheckStateChanged="@(value => SetTaskState(task.Id, value))">
                                         @task.Title
                                     </FluentCheckbox>
                                 </div>
