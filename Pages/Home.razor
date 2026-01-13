@@ -1,0 +1,209 @@
+@page "/"
+@inject AgentsChatService AgentsChatService
+
+<PageTitle>Deployment Assistant</PageTitle>
+
+<div class="app">
+    <div class="layout">
+        <nav class="nav-panel">
+            <div class="tree-header">
+                <div>
+                    <h1 class="title">Deployment tasks</h1>
+                    <p class="caption">@CompletedCount of @TotalTasks completed</p>
+                </div>
+                <FluentBadge Appearance="@Appearance.Accent" class="tree-badge">TreeView</FluentBadge>
+            </div>
+            <FluentDivider />
+            <div class="tree">
+                @foreach (var milestone in Milestones)
+                {
+                    var milestoneDone = milestone.Tasks.All(task => IsTaskComplete(task.Id));
+                    <div class="tree-branch">
+                        <div class="tree-branch-header">
+                            <span class="tree-title">@milestone.Title</span>
+                            @if (milestoneDone)
+                            {
+                                <FluentBadge Appearance="@Appearance.Lightweight" class="done-badge">Done</FluentBadge>
+                            }
+                        </div>
+                        <div class="tree-tasks">
+                            @foreach (var task in milestone.Tasks)
+                            {
+                                <div class="tree-task">
+                                    <FluentCheckbox ThreeState="true" CheckState="@GetTaskState(task.Id)" CheckStateChanged="@(value => SetTaskState(task.Id, value))">
+                                        @task.Title
+                                    </FluentCheckbox>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </nav>
+        <main class="content">
+            <FluentCard class="card">
+                <div class="card-header">
+                    <h2>Chat with Microsoft Foundry Agents</h2>
+                    <p>Capture deployment context, status, and generate guided actions.</p>
+                </div>
+                <FluentDivider />
+                <div class="chat-area">
+                    <div class="chat-window">
+                        <div class="message-list">
+                            @foreach (var message in Messages)
+                            {
+                                <div class="message" @key="message.Id">
+                                    <span class="message-sender">@(message.Sender == MessageSender.User ? "You" : "Agent")</span>
+                                    <div class="@(message.Sender == MessageSender.User ? "user-bubble" : "bot-bubble")">
+                                        <p>@message.Text</p>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                        <div class="composer">
+                            <FluentTextField class="composer-input" Placeholder="Ask the workflow to validate a step or request a runbook" @bind-Value="Draft" @onkeydown="HandleKeyDown" Disabled="@_isSending" />
+                            <FluentButton Appearance="@Appearance.Accent" OnClick="SendMessageAsync" Disabled="@_isSending">Send</FluentButton>
+                        </div>
+                    </div>
+                </div>
+            </FluentCard>
+            <FluentCard class="card subtle-card">
+                <p>
+                    Use the checklist to mark completed tasks and keep your deployment synchronized with the workflow. Add your own guidance by
+                    editing <code>Pages/Home.razor</code> and expand the milestones as needed.
+                </p>
+                <p class="caption">
+                    Fluent UI components from Microsoft give the page a cohesive, accessible look. Learn more at the
+                    <a href="https://www.fluentui-blazor.net" target="_blank" rel="noreferrer">Fluent UI Blazor documentation</a>.
+                </p>
+            </FluentCard>
+        </main>
+    </div>
+</div>
+
+@code {
+    private static readonly IReadOnlyList<Milestone> Milestones = new List<Milestone>
+    {
+        new("start-deployment", "Start a new Deployment", new List<TaskItem>
+        {
+            new("gather-info", "Gather information about the deployment"),
+            new("create-steps", "Create deployment steps."),
+            new("create-doc", "Create deployment document."),
+            new("upload-docs", "Upload documents?"),
+            new("risk-assessment", "Rsik Assesment"),
+        }),
+        new("servicenow", "Create ServiceNow Requests", new List<TaskItem>
+        {
+            new("new-release", "Create new Release?"),
+            new("new-change", "Create new Change Requests"),
+            new("update-doc", "Update deployment document"),
+            new("upload-docs-servicenow", "Upload documents"),
+            new("deployment-timeline", "Create Deployment Timeline"),
+            new("update-change", "Update Change Requests"),
+            new("request-approval", "Request Approval"),
+        }),
+        new("email-group", "Send Email to Depoyment Group", new List<TaskItem>
+        {
+            new("send-email", "Send email to Deployment group"),
+        }),
+        new("schedule-uat", "Schedule UAT PBIs", new List<TaskItem>
+        {
+            new("add-pbi", "Add PBI to each group's board for UAT deployment"),
+        }),
+    };
+
+    private readonly HashSet<string> _completedTaskIds = new();
+    private readonly List<Message> _messages = new()
+    {
+        new("welcome", MessageSender.Agent, "Welcome! I am your Microsoft Foundry Agents assistant. Tell me what you want to deploy and I will guide you through the steps."),
+    };
+
+    private string _draft = string.Empty;
+    private bool _isSending;
+
+    private IReadOnlyList<Message> Messages => _messages;
+
+    private string Draft
+    {
+        get => _draft;
+        set => _draft = value;
+    }
+
+    private int CompletedCount => _completedTaskIds.Count;
+
+    private int TotalTasks => Milestones.Sum(milestone => milestone.Tasks.Count);
+
+    private bool IsTaskComplete(string taskId) => _completedTaskIds.Contains(taskId);
+
+    private bool? GetTaskState(string taskId) => IsTaskComplete(taskId);
+
+    private string? CurrentTaskId => Milestones
+        .SelectMany(milestone => milestone.Tasks)
+        .FirstOrDefault(task => !IsTaskComplete(task.Id))
+        ?.Id;
+
+    private void SetTaskState(string taskId, bool? isChecked)
+    {
+        if (isChecked == true)
+        {
+            _completedTaskIds.Add(taskId);
+            return;
+        }
+
+        _completedTaskIds.Remove(taskId);
+    }
+
+    private async Task SendMessageAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_draft) || _isSending)
+        {
+            return;
+        }
+
+        var trimmed = _draft.Trim();
+        _isSending = true;
+
+        _messages.Add(new Message(Guid.NewGuid().ToString("N"), MessageSender.User, trimmed));
+
+        _draft = string.Empty;
+
+        try
+        {
+            var responseText = await AgentsChatService.SendMessageAsync(trimmed, CurrentTaskId);
+            if (string.IsNullOrWhiteSpace(responseText))
+            {
+                responseText = "The workflow did not return any text.";
+            }
+
+            _messages.Add(new Message(Guid.NewGuid().ToString("N"), MessageSender.Agent, responseText));
+        }
+        catch (Exception ex)
+        {
+            _messages.Add(new Message(Guid.NewGuid().ToString("N"), MessageSender.Agent, $"Agent error: {ex.Message}"));
+        }
+        finally
+        {
+            _isSending = false;
+        }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter" && !args.ShiftKey)
+        {
+            await SendMessageAsync();
+        }
+    }
+
+    private sealed record TaskItem(string Id, string Title);
+
+    private sealed record Milestone(string Id, string Title, IReadOnlyList<TaskItem> Tasks);
+
+    private sealed record Message(string Id, MessageSender Sender, string Text);
+
+    private enum MessageSender
+    {
+        User,
+        Agent,
+    }
+}
