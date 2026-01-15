@@ -3,7 +3,8 @@ using Azure.AI.Projects;
 using Azure.AI.Projects.OpenAI;
 using Azure.Core;
 using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
+using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.Identity.Web;
 using OpenAI.Responses;
 using System.ClientModel;
 using System.ClientModel.Primitives;
@@ -25,7 +26,8 @@ public sealed class AgentsChatService
 
     public AgentsChatService(
         IConfiguration configuration,
-        IAccessTokenProvider accessTokenProvider,
+        ITokenAcquisition tokenAcquisition,
+        AuthenticationStateProvider authenticationStateProvider,
         NavigationManager navigationManager)
     {
         var projectEndpoint = configuration["Agents:ProjectEndpoint"];
@@ -55,9 +57,9 @@ public sealed class AgentsChatService
             throw new InvalidOperationException("Agents:Scopes is not configured.");
         }
 
-        var tokenSource = new MsalTokenSource(accessTokenProvider, navigationManager, scopes);
-        _projectClient = new AIProjectClient(endpoint: new Uri(projectEndpoint), tokenProvider: new MsalAuthenticationTokenProvider(tokenSource));
-        _persistentAgentsClient = new PersistentAgentsClient(projectEndpoint, new MsalTokenCredential(tokenSource));
+        var tokenSource = new UserTokenSource(tokenAcquisition, authenticationStateProvider, navigationManager, scopes);
+        _projectClient = new AIProjectClient(endpoint: new Uri(projectEndpoint), tokenProvider: new UserAuthenticationTokenProvider(tokenSource));
+        _persistentAgentsClient = new PersistentAgentsClient(projectEndpoint, new UserTokenCredential(tokenSource));
         _agentReference = new AgentReference(name: agentName, version: agentVersion);
         _taskAgentIds = BuildTaskAgentMap(gatherInfoAgentId, createStepsAgentId);
     }
@@ -222,56 +224,48 @@ public sealed class AgentsChatService
         return builder.ToString();
     }
 
-    private sealed class MsalTokenSource
+    private sealed class UserTokenSource
     {
-        private readonly IAccessTokenProvider _accessTokenProvider;
+        private readonly ITokenAcquisition _tokenAcquisition;
+        private readonly AuthenticationStateProvider _authenticationStateProvider;
         private readonly NavigationManager _navigationManager;
         private readonly string[] _scopes;
 
-        public MsalTokenSource(
-            IAccessTokenProvider accessTokenProvider,
+        public UserTokenSource(
+            ITokenAcquisition tokenAcquisition,
+            AuthenticationStateProvider authenticationStateProvider,
             NavigationManager navigationManager,
             string[] scopes)
         {
-            _accessTokenProvider = accessTokenProvider;
+            _tokenAcquisition = tokenAcquisition;
+            _authenticationStateProvider = authenticationStateProvider;
             _navigationManager = navigationManager;
             _scopes = scopes;
         }
 
         public async ValueTask<(string Token, DateTimeOffset ExpiresOn)> GetTokenAsync()
         {
-            var result = await _accessTokenProvider.RequestAccessToken(new AccessTokenRequestOptions
-            {
-                Scopes = _scopes,
-                ReturnUrl = _navigationManager.Uri,
-            });
+            var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
 
-            if (result.TryGetToken(out var token))
+            if (user.Identity is null || !user.Identity.IsAuthenticated)
             {
-                return (token.Value, token.Expires);
-            }
-
-            if (result.Status == AccessTokenResultStatus.RequiresRedirect)
-            {
-                if (!string.IsNullOrWhiteSpace(result.InteractiveRequestUrl))
-                {
-                    _navigationManager.NavigateTo(result.InteractiveRequestUrl);
-                    throw new InvalidOperationException("Redirecting to sign-in.");
-                }
-
+                _navigationManager.NavigateTo("authentication/login", forceLoad: true);
                 throw new InvalidOperationException("Sign-in is required. Navigate to /authentication/login.");
             }
 
-            throw new InvalidOperationException($"Failed to acquire an access token. Status: {result.Status}.");
+            var accessToken = await _tokenAcquisition.GetAccessTokenForUserAsync(_scopes, user: user);
+            // Token acquisition caches and refreshes; pick a conservative lifetime for downstream clients.
+            return (accessToken, DateTimeOffset.UtcNow.AddMinutes(50));
         }
     }
 
-    private sealed class MsalAuthenticationTokenProvider : AuthenticationTokenProvider
+    private sealed class UserAuthenticationTokenProvider : AuthenticationTokenProvider
     {
         private const string TokenType = "Bearer";
-        private readonly MsalTokenSource _tokenSource;
+        private readonly UserTokenSource _tokenSource;
 
-        public MsalAuthenticationTokenProvider(MsalTokenSource tokenSource)
+        public UserAuthenticationTokenProvider(UserTokenSource tokenSource)
         {
             _tokenSource = tokenSource;
         }
@@ -293,11 +287,11 @@ public sealed class AgentsChatService
         }
     }
 
-    private sealed class MsalTokenCredential : TokenCredential
+    private sealed class UserTokenCredential : TokenCredential
     {
-        private readonly MsalTokenSource _tokenSource;
+        private readonly UserTokenSource _tokenSource;
 
-        public MsalTokenCredential(MsalTokenSource tokenSource)
+        public UserTokenCredential(UserTokenSource tokenSource)
         {
             _tokenSource = tokenSource;
         }

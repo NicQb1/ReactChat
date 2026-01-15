@@ -1,28 +1,50 @@
-using Microsoft.AspNetCore.Components.Web;
-using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.Components;
 using Microsoft.FluentUI.AspNetCore.Components;
-using ReactChat;
+using Microsoft.Identity.Web;
+using Microsoft.Identity.Web.UI;
 using ReactChat.Services;
 
-var builder = WebAssemblyHostBuilder.CreateDefault(args);
-builder.RootComponents.Add<App>("#app");
-builder.RootComponents.Add<HeadOutlet>("head::after");
+var builder = WebApplication.CreateBuilder(args);
 
+var scopes = builder.Configuration.GetSection("Agents:Scopes").Get<string[]>() ?? Array.Empty<string>();
+
+builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
+    .AddMicrosoftIdentityWebApp(builder.Configuration.GetSection("AzureAd"))
+    .EnableTokenAcquisitionToCallDownstreamApi(scopes)
+    .AddInMemoryTokenCaches();
+
+builder.Services.AddControllersWithViews()
+    .AddMicrosoftIdentityUI();
+
+builder.Services.AddRazorPages();
+builder.Services.AddServerSideBlazor()
+    .AddMicrosoftIdentityConsentHandler();
 builder.Services.AddFluentUIComponents();
-builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
-builder.Services.AddMsalAuthentication(options =>
+builder.Services.AddScoped(sp =>
 {
-    builder.Configuration.Bind("AzureAd", options.ProviderOptions.Authentication);
-
-    var scopes = builder.Configuration.GetSection("Agents:Scopes").Get<string[]>();
-    if (scopes is { Length: > 0 })
-    {
-        foreach (var scope in scopes)
-        {
-            options.ProviderOptions.DefaultAccessTokenScopes.Add(scope);
-        }
-    }
+    var navigation = sp.GetRequiredService<NavigationManager>();
+    return new HttpClient { BaseAddress = new Uri(navigation.BaseUri) };
 });
 builder.Services.AddScoped<AgentsChatService>();
 
-await builder.Build().RunAsync();
+var app = builder.Build();
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+}
+
+app.UseHttpsRedirection();
+app.UseStaticFiles();
+app.UseRouting();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapControllers();
+app.MapRazorPages();
+app.MapBlazorHub();
+app.MapFallbackToPage("/_Host");
+
+app.Run();

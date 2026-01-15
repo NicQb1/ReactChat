@@ -1,8 +1,25 @@
 @page "/authentication/{action}"
 
-<RemoteAuthenticatorView Action="@Action" />
+@inject NavigationManager Navigation
 
 @code {
     [Parameter]
     public string? Action { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        if (string.Equals(Action, "login", StringComparison.OrdinalIgnoreCase))
+        {
+            Navigation.NavigateTo("MicrosoftIdentity/Account/SignIn?returnUrl=/", forceLoad: true);
+            return;
+        }
+
+        if (string.Equals(Action, "logout", StringComparison.OrdinalIgnoreCase))
+        {
+            Navigation.NavigateTo("MicrosoftIdentity/Account/SignOut?returnUrl=/", forceLoad: true);
+            return;
+        }
+
+        Navigation.NavigateTo("/", forceLoad: true);
+    }
 }
